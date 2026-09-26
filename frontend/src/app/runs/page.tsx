@@ -121,7 +121,19 @@ export default function RunsPage() {
                       {run.issue_number ? `#${run.issue_number}` : "—"}
                     </td>
                     <td className="py-3 px-4">
-                      <StatusBadge status={run.status} />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={run.status} />
+                        {run.pr_url && (
+                          <a
+                            href={run.pr_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded hover:bg-emerald-900/50"
+                          >
+                            PR ↗
+                          </a>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-xs text-slate-500">
                       {files != null ? files : "—"}

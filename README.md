@@ -69,11 +69,11 @@ curl -X POST http://localhost:8000/tasks \
 
 - [x] **Phase 1**: Core scaffold — API, sandbox clone, Postgres run tracking
 - [x] **Phase 2**: Sandbox execution primitives (`SandboxConfig`, `TestResult`, `install_dependencies`, `get_repo_metadata`, hardened `write_file`)
-- [ ] **Phase 3**: Understand Issue → Plan (Planner LLM + CodeSearch)
-- [ ] **Phase 4**: Modify → Test → Iterate loop
-- [ ] **Phase 5**: Multi-agent supervisor (LangGraph)
-- [ ] **Phase 6**: GitHub integration (branch, commit, PR)
-- [ ] **Phase 7**: Observability (trace persistence, frontend)
+- [x] **Phase 3**: Understand Issue → Plan (Planner LLM + CodeSearch + Analyzer)
+- [x] **Phase 4**: Modify → Test → Iterate loop (CodeAgent + TestAgent)
+- [x] **Phase 5**: Multi-agent supervisor (LangGraph StateGraph + ReviewAgent)
+- [x] **Phase 6**: GitHub integration (branch, commit, PR creation)
+- [x] **Phase 7**: Observability (real-time trace persistence, Next.js frontend dashboard)
 
 ### Network Isolation (Phase 2)
 

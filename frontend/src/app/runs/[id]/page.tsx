@@ -188,16 +188,20 @@ export default function RunDetailPage() {
                 </InfoRow>
               )}
               {run.pr_url && (
-                <InfoRow label="PR">
+                <div className="my-2 p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-xs font-semibold text-emerald-300">Pull Request Created</span>
+                  </div>
                   <a
                     href={run.pr_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-violet-400 hover:underline"
+                    className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1 rounded transition-colors shadow-sm flex items-center gap-1"
                   >
-                    {run.pr_url}
+                    View PR ↗
                   </a>
-                </InfoRow>
+                </div>
               )}
               {run.error_message && (
                 <div className="py-3">

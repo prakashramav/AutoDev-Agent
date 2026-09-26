@@ -128,6 +128,8 @@ async def run_task(run_id: str) -> None:
                     updates["test_results"] = node_update["test_results"]
                 if "review_notes" in node_update:
                     updates["review_notes"] = node_update["review_notes"]
+                if "pr_url" in node_update:
+                    updates["pr_url"] = node_update["pr_url"]
 
                 if updates:
                     await _update_run(run_id, **updates)
@@ -153,13 +155,16 @@ async def run_task(run_id: str) -> None:
             run_obj.diff = final_state.get("diff", "")
             run_obj.test_results = final_state.get("test_results")
             run_obj.review_notes = final_state.get("review_notes", "")
+            if final_state.get("pr_url"):
+                run_obj.pr_url = final_state.get("pr_url")
             run_obj.updated_at = datetime.now(timezone.utc)
             run_obj.completed_at = datetime.now(timezone.utc)
             await session.commit()
 
         logger.info(
-            "phase5_complete",
+            "pipeline_complete",
             run_id=run_id,
+            pr_url=final_state.get("pr_url"),
             review_approved=final_state.get("review_approved"),
         )
 

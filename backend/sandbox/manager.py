@@ -306,6 +306,43 @@ class SandboxManager:
                 pass
         return diff_output.strip()
 
+    async def commit_changes(
+        self,
+        branch_name: str,
+        commit_message: str,
+        author_name: str = "AutoDev Bot",
+        author_email: str = "autodev-bot@users.noreply.github.com",
+    ) -> CommandResult:
+        """
+        Create a new branch, stage all changes (including new files), and commit.
+        """
+        cmds = (
+            f"git config user.name {shlex.quote(author_name)} && "
+            f"git config user.email {shlex.quote(author_email)} && "
+            f"git checkout -b {shlex.quote(branch_name)} && "
+            f"git add -A && "
+            f"git commit -m {shlex.quote(commit_message)}"
+        )
+        return await self._exec(["sh", "-c", cmds])
+
+    async def push_branch(
+        self,
+        branch_name: str,
+        github_token: Optional[str] = None,
+    ) -> CommandResult:
+        """
+        Push branch to remote origin. If token is provided, configures authenticated remote URL.
+        """
+        if github_token:
+            auth_url = self.repo_url
+            if auth_url.startswith("https://"):
+                auth_url = auth_url.replace("https://", f"https://x-access-token:{github_token}@")
+            push_cmd = f"git push {shlex.quote(auth_url)} {shlex.quote(branch_name)}"
+        else:
+            push_cmd = f"git push origin {shlex.quote(branch_name)}"
+
+        return await self._exec(["sh", "-c", push_cmd])
+
     # ── Command execution ─────────────────────────────────────────────────────
 
     async def run_command(

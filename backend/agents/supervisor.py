@@ -77,6 +77,10 @@ class AgentState(TypedDict):
     review_notes: str
     security_concerns: list[str]
 
+    # PR
+    pr_url: str | None
+    pr_branch: str | None
+
     # Lifecycle & status tracking
     current_status: RunStatus
     error: str | None
@@ -225,6 +229,57 @@ async def review_node(state: AgentState) -> dict[str, Any]:
     }
 
 
+async def create_pr_node(state: AgentState) -> dict[str, Any]:
+    """Commit changes to a new branch and open a GitHub Pull Request."""
+    logger.info("supervisor_create_pr_node_start")
+    from core.github import GitHubService
+    from core.config import settings
+
+    gh = GitHubService()
+    run_id = state["run_id"]
+    branch_name = f"autodev/fix-{run_id[:8]}"
+
+    # Commit changes inside sandbox
+    commit_msg = f"fix: AutoDev resolution for issue\n\nRun ID: {run_id}"
+    await state["sandbox"].commit_changes(
+        branch_name=branch_name,
+        commit_message=commit_msg,
+    )
+
+    # Push branch if enabled or when credentials are provided
+    if settings.AUTO_PUSH_TO_GITHUB and settings.GITHUB_TOKEN:
+        try:
+            await state["sandbox"].push_branch(
+                branch_name=branch_name,
+                github_token=settings.GITHUB_TOKEN,
+            )
+        except Exception as exc:
+            logger.warning("push_branch_failed", exc=str(exc))
+
+    # Create Pull Request
+    pr_title = f"fix: {state['issue_text'].splitlines()[0][:70]}"
+    pr_body = (
+        f"## 🤖 AutoDev Agent Pull Request\n\n"
+        f"### Issue\n{state['issue_text']}\n\n"
+        f"### Fix Plan\n{state['fix_plan']}\n\n"
+        f"### Security Review\n{state['review_notes']}\n\n"
+        f"---\n*Generated autonomously by AutoDev-Agent.*"
+    )
+
+    pr_res = await gh.create_pull_request(
+        repo_url=state["repo_url"],
+        branch_name=branch_name,
+        title=pr_title,
+        body=pr_body,
+    )
+
+    return {
+        "pr_url": pr_res.pr_url,
+        "pr_branch": branch_name,
+        "current_status": RunStatus.CREATING_PR,
+    }
+
+
 # ── Conditional Routing ────────────────────────────────────────────────────────
 
 def should_continue_testing(state: AgentState) -> str:
@@ -244,6 +299,13 @@ def should_continue_testing(state: AgentState) -> str:
     return "modify"
 
 
+def should_create_pr(state: AgentState) -> str:
+    """Only open PR if diff was generated and review is approved."""
+    if state.get("review_approved") and state.get("diff"):
+        return "create_pr"
+    return "end"
+
+
 # ── Graph Builder ─────────────────────────────────────────────────────────────
 
 def create_supervisor_graph():
@@ -257,6 +319,7 @@ def create_supervisor_graph():
     workflow.add_node("modify", modify_node)
     workflow.add_node("test", test_node)
     workflow.add_node("review", review_node)
+    workflow.add_node("create_pr", create_pr_node)
 
     # Set Entry Point
     workflow.set_entry_point("inspect")
@@ -277,6 +340,16 @@ def create_supervisor_graph():
         },
     )
 
-    workflow.add_edge("review", END)
+    # Branch after review
+    workflow.add_conditional_edges(
+        "review",
+        should_create_pr,
+        {
+            "create_pr": "create_pr",
+            "end": END,
+        },
+    )
+
+    workflow.add_edge("create_pr", END)
 
     return workflow.compile()

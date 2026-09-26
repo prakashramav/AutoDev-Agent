@@ -282,6 +282,30 @@ class SandboxManager:
         result = await self._exec(["test", "-f", path])
         return result.success
 
+    async def get_diff(self) -> str:
+        """
+        Run `git diff` inside the repo directory and return unified diff string.
+        Also tracks untracked files with `git status --porcelain`.
+        """
+        result = await self._exec(["git", "diff", "HEAD"])
+        diff_output = result.stdout
+        # Also check for newly created files not yet tracked
+        status_res = await self._exec(["git", "status", "--porcelain"])
+        untracked = [
+            line[3:].strip()
+            for line in status_res.stdout.splitlines()
+            if line.startswith("??")
+        ]
+        for u in untracked:
+            diff_output += f"\n--- /dev/null\n+++ b/{u}\n"
+            try:
+                content = await self.read_file(f"{self.config.repo_dir}/{u}")
+                for cl in content.splitlines():
+                    diff_output += f"+{cl}\n"
+            except Exception:
+                pass
+        return diff_output.strip()
+
     # ── Command execution ─────────────────────────────────────────────────────
 
     async def run_command(

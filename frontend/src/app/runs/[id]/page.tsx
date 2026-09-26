@@ -250,18 +250,101 @@ export default function RunDetailPage() {
             </div>
           )}
 
+          {/* Git Diff */}
+          {run.diff && (
+            <div className="glass overflow-hidden">
+              <div className="px-4 py-3 border-b border-[rgba(139,92,246,0.12)] flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Git Diff (Changes Made)
+                </h2>
+                <span className="text-[10px] text-emerald-400 font-mono">
+                  {run.diff.split("\n").filter((l) => l.startsWith("+") && !l.startsWith("+++")).length} additions,{" "}
+                  {run.diff.split("\n").filter((l) => l.startsWith("-") && !l.startsWith("---")).length} deletions
+                </span>
+              </div>
+              <div className="p-3 max-h-96 overflow-y-auto bg-[#07070c]">
+                <pre className="text-xs font-mono whitespace-pre overflow-x-auto leading-relaxed">
+                  {run.diff.split("\n").map((line, idx) => {
+                    let color = "text-slate-400";
+                    let bg = "";
+                    if (line.startsWith("+") && !line.startsWith("+++")) {
+                      color = "text-emerald-400";
+                      bg = "bg-emerald-950/20";
+                    } else if (line.startsWith("-") && !line.startsWith("---")) {
+                      color = "text-rose-400";
+                      bg = "bg-rose-950/20";
+                    } else if (line.startsWith("@@")) {
+                      color = "text-cyan-400";
+                    }
+                    return (
+                      <div key={idx} className={`${color} ${bg} px-1.5 rounded-sm`}>
+                        {line || " "}
+                      </div>
+                    );
+                  })}
+                </pre>
+              </div>
+            </div>
+          )}
+
           {/* Test results */}
           {run.test_results && (
             <div className="glass overflow-hidden">
-              <div className="px-4 py-3 border-b border-[rgba(139,92,246,0.12)]">
+              <div className="px-4 py-3 border-b border-[rgba(139,92,246,0.12)] flex items-center justify-between">
                 <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                   Test Results
                 </h2>
+                {run.test_results.passed !== undefined && (
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      run.test_results.all_passed || run.test_results.failed === 0
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                        : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                    }`}
+                  >
+                    {run.test_results.all_passed || run.test_results.failed === 0
+                      ? "PASSED"
+                      : "FAILED"}
+                  </span>
+                )}
               </div>
-              <div className="p-4">
-                <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words">
-                  {JSON.stringify(run.test_results, null, 2)}
-                </pre>
+              <div className="p-4 space-y-3">
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800">
+                    <p className="text-[10px] text-slate-500 uppercase">Passed</p>
+                    <p className="text-sm font-semibold text-emerald-400">
+                      {String(run.test_results.passed ?? 0)}
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800">
+                    <p className="text-[10px] text-slate-500 uppercase">Failed</p>
+                    <p className="text-sm font-semibold text-rose-400">
+                      {String(run.test_results.failed ?? 0)}
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800">
+                    <p className="text-[10px] text-slate-500 uppercase">Errors</p>
+                    <p className="text-sm font-semibold text-amber-400">
+                      {String(run.test_results.errors ?? 0)}
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/60 p-2 rounded border border-slate-800">
+                    <p className="text-[10px] text-slate-500 uppercase">Skipped</p>
+                    <p className="text-sm font-semibold text-slate-400">
+                      {String(run.test_results.skipped ?? 0)}
+                    </p>
+                  </div>
+                </div>
+                {Boolean(run.test_results.failure_summary) && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider mb-1">
+                      Failures
+                    </p>
+                    <pre className="text-xs text-rose-300 bg-rose-950/20 border border-rose-500/20 rounded p-2.5 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                      {String(run.test_results.failure_summary)}
+                    </pre>
+                  </div>
+                )}
               </div>
             </div>
           )}

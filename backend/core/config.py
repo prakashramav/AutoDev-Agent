@@ -4,11 +4,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Load .env.dev first (local dev), then .env (docker / production).
+        # Values in later files override earlier ones.
+        env_file=(".env.dev", ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
+
 
     # ── Application ──────────────────────────────────────────────
     APP_ENV: str = "development"

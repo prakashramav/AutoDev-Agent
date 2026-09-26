@@ -1,0 +1,17 @@
+# ─── Local development requirements (no Docker needed) ────────────────────────
+# These packages let you run the FastAPI backend on bare Python without
+# Postgres (uses aiosqlite/SQLite) or Redis (uses fakeredis).
+# Use: pip install -r requirements-dev.txt && uvicorn main:app --reload
+
+# Inherit all production deps
+-r requirements.txt
+
+# SQLite async driver (replaces asyncpg for local dev)
+aiosqlite==0.20.0
+
+# Fake redis (in-process, no server needed)
+fakeredis==2.26.1
+
+# Dev tools
+watchfiles==0.24.0
+rich==13.9.4

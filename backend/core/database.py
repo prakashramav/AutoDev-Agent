@@ -4,11 +4,14 @@ from sqlalchemy.orm import DeclarativeBase
 
 from core.config import settings
 
+_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=(settings.APP_ENV == "development"),
-    pool_size=10,
-    max_overflow=20,
+    # SQLite doesn't support connection pooling the same way as Postgres
+    **({} if _is_sqlite else {"pool_size": 10, "max_overflow": 20}),
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
 )
 
 AsyncSessionLocal = async_sessionmaker(

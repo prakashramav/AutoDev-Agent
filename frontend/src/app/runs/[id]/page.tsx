@@ -348,6 +348,25 @@ export default function RunDetailPage() {
               </div>
             </div>
           )}
+
+          {/* Security & Quality Review */}
+          {run.review_notes && (
+            <div className="glass overflow-hidden">
+              <div className="px-4 py-3 border-b border-[rgba(139,92,246,0.12)] flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Security & Quality Review
+                </h2>
+                <span className="text-[10px] text-violet-400 font-semibold px-2 py-0.5 rounded bg-violet-950/40 border border-violet-500/20">
+                  Review Agent
+                </span>
+              </div>
+              <div className="p-4 max-h-80 overflow-y-auto">
+                <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words leading-relaxed">
+                  {run.review_notes}
+                </pre>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right — trace timeline */}

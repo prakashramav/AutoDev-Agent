@@ -1,20 +1,8 @@
 """
-Worker — Phase 4 task runner.
+Worker — Phase 5 task runner using Multi-Agent Supervisor.
 
-Pipeline:
-  1. Load the Run from Postgres/SQLite.
-  2. Spin up a SandboxManager → clone → inspect (Phase 2).
-  3. Planner LLM call: issue + file_tree → ranked files + search queries + plan (Phase 3).
-  4. CodeSearch: grep queries inside sandbox → ranked match set (Phase 3).
-  5. Analyzer LLM call: reads top files → concrete fix plan (Phase 3).
-  6. Phase 4: Modify → Test → Iterate Loop
-     - Run initial test suite baseline.
-     - Code Agent modifies code in sandbox based on fix plan.
-     - Test Agent executes tests.
-     - If tests fail, iterate up to MAX_ITERATIONS feeding tracebacks back to Code Agent.
-     - Compute git diff and store final test results.
-  7. Persist outputs (fix_plan, diff, test_results, status=DONE).
-  8. Destroy sandbox (always, even on error).
+Runs the autonomous development loop through the LangGraph supervisor while
+persisting step transitions and agent audit events to the database and frontend.
 """
 from __future__ import annotations
 
@@ -29,19 +17,10 @@ from core.database import AsyncSessionLocal
 from models.run import Run, RunStatus
 from sandbox.config import SandboxConfig
 from sandbox.manager import SandboxManager
-from agents.planner import Planner
-from agents.code_search import CodeSearch
-from agents.analyzer import Analyzer
-from agents.coder import CodeAgent
-from agents.tester import TestAgent
+from agents.supervisor import create_supervisor_graph, AgentState
 
 logger = structlog.get_logger(__name__)
 
-# Max healing iterations for Modify → Test → Fix loop
-MAX_FIX_ITERATIONS = 3
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _append_trace(run: Run, entry: dict) -> None:
     """Append a structured entry to the run's trace log."""
@@ -68,18 +47,14 @@ async def _update_run(run_id: str, **kwargs) -> None:
         await session.commit()
 
 
-# ── Main task ─────────────────────────────────────────────────────────────────
-
 async def run_task(run_id: str) -> None:
     """
     Entry point called by FastAPI BackgroundTasks.
-
-    Full Phase 4 pipeline:
-      Clone → Inspect → Plan → CodeSearch → Analyze → Modify/Test Loop → Diff → Persist.
+    Executes the multi-agent graph with the ephemeral Docker sandbox.
     """
-    logger.info("worker_starting", run_id=run_id)
+    logger.info("worker_starting_phase5", run_id=run_id)
 
-    # ── Load run ─────────────────────────────────────────────────────────────
+    # 1. Load run
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Run).where(Run.id == run_id))
         run = result.scalar_one_or_none()
@@ -93,249 +68,99 @@ async def run_task(run_id: str) -> None:
 
     sandbox: SandboxManager | None = None
     try:
-        # ── Phase 2: Clone + Inspect ──────────────────────────────────────────
         await _update_run(run_id, status=RunStatus.CLONING)
-        logger.info("cloning_repo", run_id=run_id, repo_url=repo_url)
 
         cfg = SandboxConfig()
         sandbox = SandboxManager(repo_url=repo_url, run_id=run_id, config=cfg)
         container_id = await sandbox.start()
         await _update_run(run_id, sandbox_container_id=container_id)
 
-        clone_result = await sandbox.clone_repo()
-        if not clone_result.success:
-            raise RuntimeError(f"git clone failed:\n{clone_result.stderr}")
+        # Initialize Supervisor Graph & initial state
+        supervisor_graph = create_supervisor_graph()
 
-        await _update_run(run_id, status=RunStatus.INSPECTING)
-        logger.info("inspecting_repo", run_id=run_id)
-
-        repo_meta = await sandbox.get_repo_metadata()
-        file_tree = await sandbox.list_files()
-        await _update_run(run_id, file_tree=file_tree)
-
-        dep_result = await sandbox.install_dependencies()
-        logger.info(
-            "dep_install_done",
-            run_id=run_id,
-            exit_code=dep_result.exit_code,
-        )
-
-        inspection_trace_entry = {
-            "type": "inspection_complete",
-            "data": {
-                "total_files": repo_meta.total_files,
-                "primary_language": repo_meta.primary_language,
-                "test_framework": repo_meta.test_framework,
-                "dep_files": repo_meta.dep_files,
-                "test_dirs": repo_meta.test_dirs,
-                "dep_install_exit_code": dep_result.exit_code,
-            },
+        initial_state: AgentState = {
+            "run_id": run_id,
+            "repo_url": repo_url,
+            "issue_text": issue_text,
+            "sandbox": sandbox,
+            "file_tree": "",
+            "repo_meta": {},
+            "relevant_files": [],
+            "search_queries": [],
+            "search_hits": [],
+            "fix_plan": "",
+            "target_files": [],
+            "tests_to_run": [],
+            "iteration": 0,
+            "max_iterations": 3,
+            "test_feedback": None,
+            "test_results": None,
+            "all_tests_passed": False,
+            "diff": "",
+            "review_approved": False,
+            "review_notes": "",
+            "security_concerns": [],
+            "current_status": RunStatus.CLONING,
+            "error": None,
         }
 
-        # ── Phase 3a: Planner ─────────────────────────────────────────────────
-        await _update_run(run_id, status=RunStatus.PLANNING)
-        logger.info("planner_starting", run_id=run_id)
+        # Stream / run nodes in the supervisor graph
+        final_state: dict[str, Any] = {}
+        async for output in supervisor_graph.astream(initial_state):
+            for node_name, node_update in output.items():
+                logger.info("supervisor_node_completed", node=node_name)
+                final_state.update(node_update)
 
-        planner = Planner()
-        planner_result = await planner.plan(
-            issue_text=issue_text,
-            file_tree=file_tree,
-            repo_meta={
-                "primary_language": repo_meta.primary_language,
-                "test_framework": repo_meta.test_framework,
-                "dep_files": repo_meta.dep_files,
-                "test_dirs": repo_meta.test_dirs,
-            },
-        )
+                # Persist intermediate status and outputs
+                status_to_set = node_update.get("current_status")
+                updates: dict[str, Any] = {}
+                if status_to_set:
+                    updates["status"] = status_to_set
+                if "file_tree" in node_update:
+                    updates["file_tree"] = node_update["file_tree"]
+                if "relevant_files" in node_update:
+                    updates["relevant_files"] = node_update["relevant_files"]
+                if "fix_plan" in node_update:
+                    updates["fix_plan"] = node_update["fix_plan"]
+                if "diff" in node_update:
+                    updates["diff"] = node_update["diff"]
+                if "test_results" in node_update:
+                    updates["test_results"] = node_update["test_results"]
+                if "review_notes" in node_update:
+                    updates["review_notes"] = node_update["review_notes"]
 
-        logger.info(
-            "planner_complete",
-            run_id=run_id,
-            files=len(planner_result.relevant_files),
-            queries=len(planner_result.search_queries),
-        )
+                if updates:
+                    await _update_run(run_id, **updates)
 
-        # ── Phase 3b: CodeSearch ──────────────────────────────────────────────
-        logger.info("code_search_starting", run_id=run_id)
+                # Record node trace event
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(select(Run).where(Run.id == run_id))
+                    run_obj = result.scalar_one()
+                    await _append_trace(
+                        run_obj,
+                        {
+                            "type": f"supervisor_node_{node_name}",
+                            "data": {k: v for k, v in node_update.items() if k != "sandbox"},
+                        },
+                    )
+                    await session.commit()
 
-        searcher = CodeSearch(sandbox)
-        search_result = await searcher.search(planner_result.search_queries)
-
-        logger.info(
-            "code_search_complete",
-            run_id=run_id,
-            matches=len(search_result.matches),
-            unique_files=len(search_result.unique_files),
-        )
-
-        search_hits_serialised: list[dict[str, Any]] = [
-            {"file": m.file, "line": m.line, "content": m.content, "query": m.query}
-            for m in search_result.matches
-        ]
-
-        merged_files: list[str] = list(planner_result.relevant_files)
-        for f in search_result.unique_files:
-            if f not in merged_files:
-                merged_files.append(f)
-
-        await _update_run(run_id, relevant_files=merged_files[:20])
-
-        # ── Phase 3c: Analyzer ────────────────────────────────────────────────
-        logger.info("analyzer_starting", run_id=run_id)
-
-        analyzer = Analyzer(sandbox=sandbox)
-        analyzer_result = await analyzer.analyze(
-            issue_text=issue_text,
-            planner_plan=planner_result.plan_text,
-            relevant_files=merged_files,
-            search_hits=search_hits_serialised,
-        )
-
-        logger.info(
-            "analyzer_complete",
-            run_id=run_id,
-            confidence=analyzer_result.confidence,
-            files_to_edit=len(analyzer_result.files_to_edit),
-        )
-
-        # Save Analyzer plan so far
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Run).where(Run.id == run_id))
-            run_obj = result.scalar_one()
-            await _append_trace(run_obj, inspection_trace_entry)
-            await _append_trace(run_obj, {
-                "type": "planner_complete",
-                "data": {
-                    "summary": planner_result.summary,
-                    "relevant_files": planner_result.relevant_files,
-                    "search_queries": planner_result.search_queries,
-                    "input_tokens": planner_result.usage_input_tokens,
-                    "output_tokens": planner_result.usage_output_tokens,
-                },
-            })
-            await _append_trace(run_obj, {
-                "type": "code_search_complete",
-                "data": {
-                    "queries_run": search_result.queries_run,
-                    "queries_empty": search_result.queries_empty,
-                    "total_matches": len(search_result.matches),
-                    "unique_files": search_result.unique_files,
-                    "top_hits": search_hits_serialised[:20],
-                },
-            })
-            await _append_trace(run_obj, {
-                "type": "analyzer_complete",
-                "data": {
-                    "files_read": analyzer_result.files_read,
-                    "files_to_edit": analyzer_result.files_to_edit,
-                    "tests_to_run": analyzer_result.tests_to_run,
-                    "confidence": analyzer_result.confidence,
-                    "input_tokens": analyzer_result.usage_input_tokens,
-                    "output_tokens": analyzer_result.usage_output_tokens,
-                },
-            })
-            run_obj.fix_plan = analyzer_result.fix_plan
-            await session.commit()
-
-        # ── Phase 4: Modify → Test → Iterate Loop ─────────────────────────────
-        target_files = analyzer_result.files_to_edit or merged_files[:3]
-        coder = CodeAgent(sandbox=sandbox)
-        tester = TestAgent(sandbox=sandbox)
-
-        last_test_feedback: str | None = None
-        iteration = 1
-        all_passed = False
-        latest_test_dict: dict[str, Any] | None = None
-
-        while iteration <= MAX_FIX_ITERATIONS:
-            # 4a. Apply modifications
-            await _update_run(run_id, status=RunStatus.MODIFYING)
-            logger.info("modifying_code", run_id=run_id, iteration=iteration)
-
-            coder_result = await coder.generate_and_apply_edits(
-                issue_text=issue_text,
-                fix_plan=analyzer_result.fix_plan,
-                target_files=target_files,
-                test_feedback=last_test_feedback,
-                iteration=iteration,
-            )
-
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(select(Run).where(Run.id == run_id))
-                run_obj = result.scalar_one()
-                await _append_trace(run_obj, {
-                    "type": "code_agent_modified",
-                    "data": {
-                        "iteration": iteration,
-                        "files_edited": [e.path for e in coder_result.edits],
-                        "explanation": coder_result.explanation,
-                        "input_tokens": coder_result.usage_input_tokens,
-                        "output_tokens": coder_result.usage_output_tokens,
-                    },
-                })
-                await session.commit()
-
-            # 4b. Run tests
-            await _update_run(run_id, status=RunStatus.TESTING)
-            logger.info("running_tests_iteration", run_id=run_id, iteration=iteration)
-
-            tests_outcome = await tester.execute_tests(
-                specific_tests=analyzer_result.tests_to_run or None
-            )
-
-            latest_test_dict = (
-                tests_outcome.test_result.to_dict()
-                if tests_outcome.test_result
-                else {"summary": tests_outcome.summary, "passed": tests_outcome.passed}
-            )
-
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(select(Run).where(Run.id == run_id))
-                run_obj = result.scalar_one()
-                await _append_trace(run_obj, {
-                    "type": "test_agent_run",
-                    "data": {
-                        "iteration": iteration,
-                        "passed": tests_outcome.passed,
-                        "summary": tests_outcome.summary,
-                    },
-                })
-                run_obj.test_results = latest_test_dict
-                await session.commit()
-
-            if tests_outcome.passed:
-                logger.info("tests_passed_successfully", iteration=iteration)
-                all_passed = True
-                break
-
-            logger.warning(
-                "tests_failed_will_iterate",
-                iteration=iteration,
-                summary=tests_outcome.summary,
-            )
-            last_test_feedback = tests_outcome.failure_feedback
-            iteration += 1
-
-        # ── Capture Final Git Diff ────────────────────────────────────────────
-        final_diff = await sandbox.get_diff()
-        await _update_run(run_id, diff=final_diff)
-
-        # ── Mark Done ─────────────────────────────────────────────────────────
+        # Mark Run as Done
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Run).where(Run.id == run_id))
             run_obj = result.scalar_one()
             run_obj.status = RunStatus.DONE
-            run_obj.diff = final_diff
-            run_obj.test_results = latest_test_dict
+            run_obj.diff = final_state.get("diff", "")
+            run_obj.test_results = final_state.get("test_results")
+            run_obj.review_notes = final_state.get("review_notes", "")
             run_obj.updated_at = datetime.now(timezone.utc)
             run_obj.completed_at = datetime.now(timezone.utc)
             await session.commit()
 
         logger.info(
-            "phase4_complete",
+            "phase5_complete",
             run_id=run_id,
-            all_passed=all_passed,
-            diff_lines=len(final_diff.splitlines()),
+            review_approved=final_state.get("review_approved"),
         )
 
     except Exception as exc:
@@ -346,7 +171,6 @@ async def run_task(run_id: str) -> None:
             error_message=str(exc),
         )
     finally:
-        # Always destroy the sandbox container
         if sandbox is not None:
             try:
                 await sandbox.destroy()
@@ -354,7 +178,6 @@ async def run_task(run_id: str) -> None:
                 logger.warning("sandbox_destroy_failed_in_finally", run_id=run_id)
 
 
-# ── Standalone entry point ────────────────────────────────────────────────────
 if __name__ == "__main__":
     import sys
     import logging

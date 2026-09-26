@@ -68,12 +68,25 @@ curl -X POST http://localhost:8000/tasks \
 ## Build Phases
 
 - [x] **Phase 1**: Core scaffold — API, sandbox clone, Postgres run tracking
-- [ ] **Phase 2**: Sandbox execution primitives (run_command, read_file, write_file, run_tests)
+- [x] **Phase 2**: Sandbox execution primitives (`SandboxConfig`, `TestResult`, `install_dependencies`, `get_repo_metadata`, hardened `write_file`)
 - [ ] **Phase 3**: Understand Issue → Plan (Planner LLM + CodeSearch)
 - [ ] **Phase 4**: Modify → Test → Iterate loop
 - [ ] **Phase 5**: Multi-agent supervisor (LangGraph)
 - [ ] **Phase 6**: GitHub integration (branch, commit, PR)
 - [ ] **Phase 7**: Observability (trace persistence, frontend)
+
+### Network Isolation (Phase 2)
+
+Sandbox containers run on an isolated Docker bridge network (`sandbox_net`).
+To enforce egress allowlisting (only GitHub / pip / npm / Go / Cargo registries):
+
+```bash
+# Run once on the Docker host (Linux only — requires root + iptables)
+sudo bash scripts/setup_sandbox_network.sh
+```
+
+On macOS/Windows Docker Desktop, the host network stack is inside a Linux VM —
+the script still works but must be run inside the VM or via Docker Desktop settings.
 
 ## Safety Constraints
 

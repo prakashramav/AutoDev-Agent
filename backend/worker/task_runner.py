@@ -1,28 +1,30 @@
 """
-Worker — Phase 1 task runner.
+Worker — Phase 2 task runner.
 
 Core flow:
   1. Load the Run from Postgres.
-  2. Spin up a SandboxManager (creates a Docker container).
+  2. Spin up a SandboxManager with typed SandboxConfig.
   3. Clone the repo inside the sandbox.
-  4. List files and read a sample file to confirm read access.
-  5. Persist results back to the Run row.
-  6. Destroy the sandbox.
+  4. get_repo_metadata() — language, framework, dep files, test dirs.
+  5. install_dependencies() inside the sandbox.
+  6. list_files() + sample read to confirm file access.
+  7. Persist all results + structured trace to the Run row.
+  8. Destroy the sandbox (always, even on error).
 
-Phase 2+: This file will grow to include the full agent loop.
-For now it is intentionally minimal so the infrastructure can be
-validated end-to-end before adding LLM calls.
+Phase 3+: This file will grow to include the Planner LLM call.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 from datetime import datetime, timezone
+from dataclasses import asdict
 
 from sqlalchemy import select
 
 from core.database import AsyncSessionLocal
 from models.run import Run, RunStatus
+from sandbox.config import SandboxConfig
 from sandbox.manager import SandboxManager
 
 logger = logging.getLogger(__name__)
@@ -69,12 +71,14 @@ async def run_task(run_id: str) -> None:
             return
         repo_url = run.repo_url
 
+    sandbox: SandboxManager | None = None
     try:
-        # ── Phase 1: Clone → Inspect ─────────────────────────────
+        # ── Start sandbox ─────────────────────────────────────────
         await _update_run(run_id, status=RunStatus.CLONING)
         logger.info("cloning_repo", run_id=run_id, repo_url=repo_url)
 
-        sandbox = SandboxManager(repo_url=repo_url, run_id=run_id)
+        cfg = SandboxConfig()   # all values from settings; Phase 3+ can customize
+        sandbox = SandboxManager(repo_url=repo_url, run_id=run_id, config=cfg)
         container_id = await sandbox.start()
         await _update_run(run_id, sandbox_container_id=container_id)
 
@@ -82,14 +86,24 @@ async def run_task(run_id: str) -> None:
         if not clone_result.success:
             raise RuntimeError(f"git clone failed:\n{clone_result.stderr}")
 
-        # ── Inspect: list files ──────────────────────────────────
+        # ── Phase 2: Inspect + metadata ──────────────────────────
         await _update_run(run_id, status=RunStatus.INSPECTING)
         logger.info("inspecting_repo", run_id=run_id)
 
-        file_tree = await sandbox.list_files("/repo")
+        # Structured repo metadata (language, framework, dep files, test dirs)
+        repo_meta = await sandbox.get_repo_metadata()
+        file_tree = await sandbox.list_files()
         await _update_run(run_id, file_tree=file_tree)
 
-        # ── Read a sample file (README or first .py) to confirm access ──
+        # ── Install dependencies ──────────────────────────────────
+        dep_result = await sandbox.install_dependencies()
+        logger.info(
+            "dep_install_done",
+            run_id=run_id,
+            exit_code=dep_result.exit_code,
+        )
+
+        # ── Sample file read (confirm read access) ────────────────
         lines = [l.strip() for l in file_tree.splitlines() if l.strip()]
         sample_path: str | None = None
         for candidate in lines:
@@ -117,13 +131,18 @@ async def run_task(run_id: str) -> None:
             except Exception as exc:
                 logger.warning("sample_read_failed", path=sample_path, exc=str(exc))
 
-        # ── Persist full inspection report ───────────────────────
+        # ── Persist full inspection report ────────────────────────
         trace_entry = {
             "type": "inspection_complete",
             "data": {
-                "total_files": len(lines),
+                "total_files": repo_meta.total_files,
+                "primary_language": repo_meta.primary_language,
+                "test_framework": repo_meta.test_framework,
+                "dep_files": repo_meta.dep_files,
+                "test_dirs": repo_meta.test_dirs,
                 "sample_file": sample_path,
                 "sample_preview": (sample_content or "")[:500],
+                "dep_install_exit_code": dep_result.exit_code,
             },
         }
         async with AsyncSessionLocal() as session:
@@ -135,7 +154,13 @@ async def run_task(run_id: str) -> None:
             run_obj.completed_at = datetime.now(timezone.utc)
             await session.commit()
 
-        logger.info("phase1_complete", run_id=run_id, total_files=len(lines))
+        logger.info(
+            "phase2_complete",
+            run_id=run_id,
+            total_files=repo_meta.total_files,
+            language=repo_meta.primary_language,
+            framework=repo_meta.test_framework,
+        )
 
     except Exception as exc:
         logger.exception("worker_error", run_id=run_id)
@@ -145,11 +170,12 @@ async def run_task(run_id: str) -> None:
             error_message=str(exc),
         )
     finally:
-        # Always destroy the sandbox container
-        try:
-            await sandbox.destroy()
-        except Exception:
-            pass
+        # Always destroy the sandbox container — even if an error occurred
+        if sandbox is not None:
+            try:
+                await sandbox.destroy()
+            except Exception:
+                logger.warning("sandbox_destroy_failed_in_finally", run_id=run_id)
 
 
 # ── Standalone entry point (Phase 1 worker process) ────────────

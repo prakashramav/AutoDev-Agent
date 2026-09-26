@@ -1,12 +1,19 @@
 version: "3.9"
 
-# ─── Isolated network for sandbox containers ───────────────────
-# Sandbox containers join this network; add whitelist-only egress rules here.
+# ─── Networks ──────────────────────────────────────────────────
 networks:
+  # Internal network for api <-> postgres <-> redis communication
   backend_net:
     driver: bridge
+
+  # Isolated network for ephemeral sandbox containers.
+  # Egress to the internet is intentionally unrestricted at the Docker level.
+  # Run `sudo bash scripts/setup_sandbox_network.sh` on the Docker host
+  # to apply iptables allowlist rules (GitHub/pip/npm only).
   sandbox_net:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "br-autodev-sbx"
 
 volumes:
   postgres_data:

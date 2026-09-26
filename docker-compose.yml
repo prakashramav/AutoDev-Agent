@@ -1,0 +1,117 @@
+version: "3.9"
+
+# ─── Isolated network for sandbox containers ───────────────────
+# Sandbox containers join this network; add whitelist-only egress rules here.
+networks:
+  backend_net:
+    driver: bridge
+  sandbox_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [backend_net]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-autodev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-autodev_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-autodev_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autodev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ─────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [backend_net]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── FastAPI backend ───────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [backend_net]
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - APP_HOST=${APP_HOST:-0.0.0.0}
+      - APP_PORT=${APP_PORT:-8000}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SANDBOX_CPU_QUOTA=${SANDBOX_CPU_QUOTA:-50000}
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
+      - SANDBOX_TIMEOUT_SECONDS=${SANDBOX_TIMEOUT_SECONDS:-300}
+      - SANDBOX_NETWORK=${SANDBOX_NETWORK:-sandbox_net}
+      - REQUIRE_GH_CONFIRMATION=${REQUIRE_GH_CONFIRMATION:-true}
+      - AUTO_PUSH_TO_GITHUB=${AUTO_PUSH_TO_GITHUB:-false}
+    volumes:
+      # Mount docker socket so the API can spawn sandbox containers
+      # NOTE: This is intentional — the sandbox manager uses docker exec,
+      # not the host python process, to run any repo code.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Worker (background task processor) ───────────────────────
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks: [backend_net]
+    command: ["python", "-m", "worker.task_runner"]
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SANDBOX_CPU_QUOTA=${SANDBOX_CPU_QUOTA:-50000}
+      - SANDBOX_MEMORY_LIMIT=${SANDBOX_MEMORY_LIMIT:-512m}
+      - SANDBOX_TIMEOUT_SECONDS=${SANDBOX_TIMEOUT_SECONDS:-300}
+      - SANDBOX_NETWORK=${SANDBOX_NETWORK:-sandbox_net}
+      - REQUIRE_GH_CONFIRMATION=${REQUIRE_GH_CONFIRMATION:-true}
+      - AUTO_PUSH_TO_GITHUB=${AUTO_PUSH_TO_GITHUB:-false}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

@@ -1,0 +1,54 @@
+# Environment
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+*.whl
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# Database / migrations
+alembic/versions/*.py
+# Keep the versions directory, not the migration files
+
+# Docker
+*.tar
+
+# Logs
+*.log
+logs/
+
+# Node (for Phase 7 frontend)
+node_modules/
+.next/
+out/

@@ -46,6 +46,13 @@ class Run(Base):
         default=RunStatus.PENDING,
     )
 
+    def __init__(self, **kwargs):
+        if "status" not in kwargs:
+            kwargs["status"] = RunStatus.PENDING
+        if "trace" not in kwargs:
+            kwargs["trace"] = []
+        super().__init__(**kwargs)
+
     # ── Outputs (progressively filled in) ──────────────────────
     sandbox_container_id = Column(String(128), nullable=True)  # docker container id
     file_tree            = Column(Text, nullable=True)          # repo file listing

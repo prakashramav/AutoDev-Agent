@@ -212,6 +212,44 @@ export default function RunDetailPage() {
             </div>
           </div>
 
+          {/* Relevant Files */}
+          {run.relevant_files && run.relevant_files.length > 0 && (
+            <div className="glass overflow-hidden">
+              <div className="px-4 py-3 border-b border-[rgba(139,92,246,0.12)] flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Relevant Files ({run.relevant_files.length})
+                </h2>
+              </div>
+              <div className="p-3 max-h-60 overflow-y-auto space-y-1">
+                {run.relevant_files.map((file, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2 text-xs font-mono text-slate-300 py-1 px-2 rounded hover:bg-violet-950/20"
+                  >
+                    <span className="text-[10px] text-violet-500 font-sans">#{idx + 1}</span>
+                    <span className="truncate">{file}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Fix Plan */}
+          {run.fix_plan && (
+            <div className="glass overflow-hidden">
+              <div className="px-4 py-3 border-b border-[rgba(139,92,246,0.12)]">
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Fix Plan (Analyzer)
+                </h2>
+              </div>
+              <div className="p-4 max-h-96 overflow-y-auto">
+                <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words leading-relaxed">
+                  {run.fix_plan}
+                </pre>
+              </div>
+            </div>
+          )}
+
           {/* Test results */}
           {run.test_results && (
             <div className="glass overflow-hidden">

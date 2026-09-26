@@ -41,8 +41,9 @@ from typing import Optional
 
 from sandbox.config import SandboxConfig
 from sandbox.parser import TestResult, parse_pytest_output
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # ─── Result types ─────────────────────────────────────────────────────────────
@@ -551,12 +552,16 @@ class SandboxManager:
         workdir: Optional[str] = None,
         timeout: int = 60,
     ) -> CommandResult:
-        """
-        Execute `cmd` inside the sandbox container via `docker exec`.
+        """Execute `cmd` inside the sandbox container via `docker exec`."""
+        return await self._exec_in_sandbox(cmd, workdir=workdir, timeout=timeout)
 
-        This is the ONLY place in the codebase that issues docker exec.
-        The host Python process never runs repo code directly.
-        """
+    async def _exec_in_sandbox(
+        self,
+        cmd: list[str],
+        workdir: Optional[str] = None,
+        timeout: int = 60,
+    ) -> CommandResult:
+        """Internal execution helper inside the container."""
         if not self.container_id:
             raise RuntimeError(
                 "Sandbox not started — call start() or use as async context manager"

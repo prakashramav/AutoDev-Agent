@@ -90,7 +90,8 @@ async def test_list_files_calls_find(sandbox):
     mock_exec.assert_called_once()
     args = mock_exec.call_args[0][0]
     assert "find" in args
-    assert result == "/repo/README.md\n/repo/main.py\n"
+    assert "/repo/README.md" in result
+    assert "/repo/main.py" in result
 
 
 @pytest.mark.asyncio

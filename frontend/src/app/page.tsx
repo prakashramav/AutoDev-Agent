@@ -55,7 +55,15 @@ function repoName(url: string): string {
 
 // ── Run row ──────────────────────────────────────────────────────────────────
 
-function RunRow({ run }: { run: Run }) {
+function RunRow({
+  run,
+  onRestart,
+  isRestarting,
+}: {
+  run: Run;
+  onRestart?: (runId: string) => void;
+  isRestarting?: boolean;
+}) {
   return (
     <tr className="border-b border-[rgba(139,92,246,0.08)] hover:bg-[rgba(139,92,246,0.04)] transition-colors">
       <td className="py-3 px-4">
@@ -75,12 +83,33 @@ function RunRow({ run }: { run: Run }) {
       </td>
       <td className="py-3 px-4 text-xs text-slate-500">{timeAgo(run.created_at)}</td>
       <td className="py-3 px-4">
-        <Link
-          href={`/runs/${run.run_id}`}
-          className="text-xs px-3 py-1.5 rounded-md border border-[rgba(139,92,246,0.3)] text-violet-400 hover:bg-[rgba(139,92,246,0.1)] transition-colors"
-        >
-          View →
-        </Link>
+        <div className="flex items-center gap-2">
+          {run.status === "failed" && onRestart && (
+            <button
+              onClick={() => onRestart(run.run_id)}
+              disabled={isRestarting}
+              title="Restart this failed run"
+              className="text-xs px-2.5 py-1.5 rounded-md bg-violet-600/20 hover:bg-violet-600/40 border border-violet-500/30 text-violet-300 flex items-center gap-1 transition-all disabled:opacity-50"
+            >
+              <svg
+                className={`w-3 h-3 ${isRestarting ? "animate-spin" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {isRestarting ? "…" : "Restart"}
+            </button>
+          )}
+          <Link
+            href={`/runs/${run.run_id}`}
+            className="text-xs px-3 py-1.5 rounded-md border border-[rgba(139,92,246,0.3)] text-violet-400 hover:bg-[rgba(139,92,246,0.1)] transition-colors"
+          >
+            View →
+          </Link>
+        </div>
       </td>
     </tr>
   );
@@ -92,6 +121,7 @@ export default function DashboardPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
+  const [restartingId, setRestartingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -105,6 +135,21 @@ export default function DashboardPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleRestart = async (runId: string) => {
+    if (restartingId) return;
+    setRestartingId(runId);
+    try {
+      const updated = await api.restartRun(runId);
+      setRuns((prev) =>
+        prev.map((r) => (r.run_id === runId ? updated : r))
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to restart run");
+    } finally {
+      setRestartingId(null);
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -220,7 +265,12 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {runs.map((r) => (
-                    <RunRow key={r.run_id} run={r} />
+                    <RunRow
+                      key={r.run_id}
+                      run={r}
+                      onRestart={handleRestart}
+                      isRestarting={restartingId === r.run_id}
+                    />
                   ))}
                 </tbody>
               </table>

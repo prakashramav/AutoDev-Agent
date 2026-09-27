@@ -141,3 +141,48 @@ async def list_tasks(
     )
     runs = result.scalars().all()
     return [_run_to_response(r) for r in runs]
+
+
+@router.post("/{run_id}/restart", response_model=TaskResponse)
+@router.post("/{run_id}/retry", response_model=TaskResponse)
+async def restart_task(
+    run_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Restart or retry a run (e.g. failed or interrupted runs).
+    Clears previous error messages and intermediate outputs, resets status to PENDING,
+    and enqueues the worker task to execute with current configuration and sandbox tooling.
+    """
+    result = await db.execute(select(Run).where(Run.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
+
+    run.status = RunStatus.PENDING
+    run.error_message = None
+    run.completed_at = None
+    run.sandbox_container_id = None
+    run.file_tree = None
+    run.relevant_files = None
+    run.fix_plan = None
+    run.diff = None
+    run.test_results = None
+    run.review_notes = None
+    run.trace = (run.trace or []) + [
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "type": "run_restarted",
+            "data": {"reason": "user_restart"},
+        }
+    ]
+    run.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(run)
+
+    logger.info("task_restarted", run_id=run.id, repo_url=run.repo_url)
+    background_tasks.add_task(run_task, run.id)
+
+    return _run_to_response(run)
+

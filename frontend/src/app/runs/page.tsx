@@ -29,6 +29,7 @@ function repoName(url: string): string {
 export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
+  const [restartingId, setRestartingId] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -38,6 +39,21 @@ export default function RunsPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleRestart = async (runId: string) => {
+    if (restartingId) return;
+    setRestartingId(runId);
+    try {
+      const updated = await api.restartRun(runId);
+      setRuns((prev) =>
+        prev.map((r) => (r.run_id === runId ? updated : r))
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to restart run");
+    } finally {
+      setRestartingId(null);
+    }
+  };
 
   useEffect(() => {
     fetchRuns();
@@ -145,12 +161,33 @@ export default function RunsPage() {
                       {timeAgo(run.created_at)}
                     </td>
                     <td className="py-3 px-4">
-                      <Link
-                        href={`/runs/${run.run_id}`}
-                        className="text-xs px-3 py-1.5 rounded-md border border-[rgba(139,92,246,0.3)] text-violet-400 hover:bg-[rgba(139,92,246,0.1)] transition-colors"
-                      >
-                        View →
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        {run.status === "failed" && (
+                          <button
+                            onClick={() => handleRestart(run.run_id)}
+                            disabled={restartingId === run.run_id}
+                            title="Restart this failed run"
+                            className="text-xs px-2.5 py-1.5 rounded-md bg-violet-600/20 hover:bg-violet-600/40 border border-violet-500/30 text-violet-300 flex items-center gap-1 transition-all disabled:opacity-50"
+                          >
+                            <svg
+                              className={`w-3 h-3 ${restartingId === run.run_id ? "animate-spin" : ""}`}
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            {restartingId === run.run_id ? "…" : "Restart"}
+                          </button>
+                        )}
+                        <Link
+                          href={`/runs/${run.run_id}`}
+                          className="text-xs px-3 py-1.5 rounded-md border border-[rgba(139,92,246,0.3)] text-violet-400 hover:bg-[rgba(139,92,246,0.1)] transition-colors"
+                        >
+                          View →
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );

@@ -33,4 +33,10 @@ export const api = {
   /** Health check */
   health: (): Promise<{ status: string }> =>
     request<{ status: string }>("/health"),
+
+  /** Restart / retry a run */
+  restartRun: (runId: string): Promise<Run> =>
+    request<Run>(`/tasks/${runId}/restart`, {
+      method: "POST",
+    }),
 };

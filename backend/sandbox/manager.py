@@ -126,6 +126,11 @@ class SandboxManager:
                     logger.warning("network_create_failed_fallback_bridge", error=create_res.stderr or create_res.stdout)
                     self.config.network = "bridge"
 
+        # Base python-slim images lack git and cannot run apt-get under --read-only / --cap-drop ALL.
+        # Upgrade automatically to autodev-sandbox:latest which has git, curl, and pytest.
+        if self.config.image in ("python:3.12-slim", "python:3.12", "python:3.11-slim", "python:3-slim"):
+            self.config.image = "autodev-sandbox:latest"
+
         # Verify sandbox image exists, or build autodev-sandbox:latest from Dockerfile.sandbox
         if self.config.image == "autodev-sandbox:latest":
             img_check = await self._host_run(["docker", "image", "inspect", "autodev-sandbox:latest"], timeout=10)

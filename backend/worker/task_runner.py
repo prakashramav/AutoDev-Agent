@@ -7,8 +7,20 @@ persisting step transitions and agent audit events to the database and frontend.
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import datetime, timezone
 from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 import structlog
 from sqlalchemy import select
@@ -54,17 +66,23 @@ async def run_task(run_id: str) -> None:
     """
     logger.info("worker_starting_phase5", run_id=run_id)
 
-    # 1. Load run
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(Run).where(Run.id == run_id))
-        run = result.scalar_one_or_none()
-        if not run:
-            logger.error("run_not_found", run_id=run_id)
-            return
-        repo_url = run.repo_url
-        issue_text = run.issue_text or (
-            f"GitHub issue #{run.issue_number}" if run.issue_number else ""
-        )
+    # 1. Load run (with retry in case of commit timing)
+    run = None
+    for attempt in range(5):
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Run).where(Run.id == run_id))
+            run = result.scalar_one_or_none()
+            if run:
+                repo_url = run.repo_url
+                issue_text = run.issue_text or (
+                    f"GitHub issue #{run.issue_number}" if run.issue_number else ""
+                )
+                break
+        await asyncio.sleep(0.3)
+
+    if not run:
+        logger.error("run_not_found", run_id=run_id)
+        return
 
     sandbox: SandboxManager | None = None
     try:
@@ -169,12 +187,28 @@ async def run_task(run_id: str) -> None:
         )
 
     except Exception as exc:
-        logger.exception("worker_error", run_id=run_id)
-        await _update_run(
-            run_id,
-            status=RunStatus.FAILED,
-            error_message=str(exc),
-        )
+        err_msg = str(exc)
+        logger.error("worker_error", run_id=run_id, error=err_msg)
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(Run).where(Run.id == run_id))
+                run_obj = result.scalar_one_or_none()
+                if run_obj:
+                    run_obj.status = RunStatus.FAILED
+                    run_obj.error_message = err_msg
+                    run_obj.completed_at = datetime.now(timezone.utc)
+                    run_obj.updated_at = datetime.now(timezone.utc)
+                    await _append_trace(
+                        run_obj,
+                        {
+                            "step": "error",
+                            "status": "FAILED",
+                            "message": err_msg,
+                        },
+                    )
+                    await session.commit()
+        except Exception as inner_exc:
+            logger.error("failed_to_persist_run_error", run_id=run_id, inner=str(inner_exc))
     finally:
         if sandbox is not None:
             try:

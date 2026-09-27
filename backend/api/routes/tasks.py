@@ -105,7 +105,8 @@ async def submit_task(
         trace=[],
     )
     db.add(run)
-    await db.flush()   # get the id before background task starts
+    await db.commit()
+    await db.refresh(run)
     run_id = run.id
     logger.info("task_submitted", run_id=run_id, repo=payload.repo_url)
 

@@ -1,5 +1,5 @@
 """
-AutoDev-Agent — FastAPI application entry point.
+AutoDev-Agent — FastAPI application entry point. Connected to database.
 """
 from contextlib import asynccontextmanager
 

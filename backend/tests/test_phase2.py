@@ -379,18 +379,9 @@ async def test_exec_raises_without_container():
 async def test_host_run_timeout_returns_exit_124():
     from sandbox.manager import SandboxManager
     import asyncio
+    import subprocess
 
-    async def hanging_communicate(input=None):
-        await asyncio.sleep(9999)
-        return b"", b""
-
-    mock_proc = AsyncMock()
-    mock_proc.communicate = hanging_communicate
-    mock_proc.returncode = None
-    mock_proc.kill = MagicMock()
-    mock_proc.wait = AsyncMock()
-
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["sleep"], timeout=0.01)):
         result = await SandboxManager._host_run(["sleep", "infinity"], timeout=0.01)
 
     assert result.exit_code == 124

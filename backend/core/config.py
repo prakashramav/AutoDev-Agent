@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     SANDBOX_MEMORY_LIMIT: str = "512m"
     SANDBOX_TIMEOUT_SECONDS: int = 300
     SANDBOX_NETWORK: str = "sandbox_net"
-    SANDBOX_IMAGE: str = "python:3.12-slim"  # base image for the sandbox
+    SANDBOX_IMAGE: str = "autodev-sandbox:latest"  # base image with git & curl pre-installed
 
     # ── Safety ───────────────────────────────────────────────────
     REQUIRE_GH_CONFIRMATION: bool = True

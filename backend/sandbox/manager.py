@@ -35,6 +35,7 @@ import asyncio
 import base64
 import logging
 import shlex
+import subprocess
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
@@ -115,6 +116,35 @@ class SandboxManager:
         Pull (if needed) the sandbox image and start the container.
         Returns the full container ID.
         """
+        # Ensure the specified docker network exists
+        if self.config.network and self.config.network not in ("bridge", "host", "none"):
+            net_check = await self._host_run(["docker", "network", "inspect", self.config.network], timeout=10)
+            if not net_check.success:
+                logger.info("creating_sandbox_network", network=self.config.network)
+                create_res = await self._host_run(["docker", "network", "create", self.config.network], timeout=15)
+                if not create_res.success:
+                    logger.warning("network_create_failed_fallback_bridge", error=create_res.stderr or create_res.stdout)
+                    self.config.network = "bridge"
+
+        # Verify sandbox image exists, or build autodev-sandbox:latest from Dockerfile.sandbox
+        if self.config.image == "autodev-sandbox:latest":
+            img_check = await self._host_run(["docker", "image", "inspect", "autodev-sandbox:latest"], timeout=10)
+            if not img_check.success:
+                logger.info("building_sandbox_image", image="autodev-sandbox:latest")
+                import os
+                backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                dockerfile_path = os.path.join(backend_dir, "Dockerfile.sandbox")
+                if os.path.exists(dockerfile_path):
+                    build_res = await self._host_run(
+                        ["docker", "build", "-t", "autodev-sandbox:latest", "-f", dockerfile_path, backend_dir],
+                        timeout=180,
+                    )
+                    if not build_res.success:
+                        logger.warning("sandbox_build_failed_fallback", error=build_res.stderr or build_res.stdout)
+                        self.config.image = "python:3.12-slim"
+                else:
+                    self.config.image = "python:3.12-slim"
+
         # Clean up any leftover container with the same name before starting
         await self._host_run(["docker", "rm", "-f", self._container_name], timeout=15)
 
@@ -155,6 +185,11 @@ class SandboxManager:
 
     async def _bootstrap_container(self) -> None:
         """Install minimal tooling inside the sandbox (git, curl)."""
+        check = await self._exec(["git", "--version"])
+        if check.success:
+            logger.info("sandbox_tools_already_installed", version=check.stdout.strip())
+            return
+
         logger.info("sandbox_bootstrap_start", container_id=self.container_id[:12])
         bootstrap_cmd = (
             "apt-get update -qq 2>&1 | tail -3 && "
@@ -190,8 +225,9 @@ class SandboxManager:
             timeout=self.config.clone_timeout,
         )
         if not result.success:
+            err_msg = (result.stderr or result.stdout or f"exit code {result.exit_code}").strip()
             raise RuntimeError(
-                f"git clone failed for {self.repo_url}:\n{result.stderr}"
+                f"git clone failed for {self.repo_url}:\n{err_msg}"
             )
         logger.info("clone_complete", repo_dir=self.config.repo_dir)
         return result
@@ -663,39 +699,40 @@ class SandboxManager:
             timeout: Seconds before the command is killed.
             stdin_data: Optional bytes to pipe into the process stdin.
         """
-        proc = None
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.PIPE if stdin_data else None,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        def _sync_exec() -> CommandResult:
+            try:
+                res = subprocess.run(
+                    cmd,
+                    input=stdin_data,
+                    capture_output=True,
+                    timeout=timeout,
+                )
+                return CommandResult(
+                    stdout=res.stdout.decode("utf-8", errors="replace"),
+                    stderr=res.stderr.decode("utf-8", errors="replace"),
+                    exit_code=res.returncode,
+                )
+            except subprocess.TimeoutExpired:
+                logger.error("host_run_timeout", cmd=cmd[:4], timeout=timeout)
+                return CommandResult(
+                    stdout="",
+                    stderr=f"Command timed out after {timeout}s",
+                    exit_code=124,
+                )
+            except Exception as exc:
+                logger.exception("host_run_error", cmd=cmd[:4])
+                return CommandResult(stdout="", stderr=f"{type(exc).__name__}: {exc}", exit_code=1)
+
+        result = await asyncio.to_thread(_sync_exec)
+        if not result.success:
+            logger.warning(
+                "host_run_failed",
+                cmd=cmd[:4],
+                exit_code=result.exit_code,
+                stdout=result.stdout[:500],
+                stderr=result.stderr[:500],
             )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(input=stdin_data),
-                timeout=timeout,
-            )
-            return CommandResult(
-                stdout=stdout_bytes.decode("utf-8", errors="replace"),
-                stderr=stderr_bytes.decode("utf-8", errors="replace"),
-                exit_code=proc.returncode if proc.returncode is not None else 1,
-            )
-        except asyncio.TimeoutError:
-            logger.error("host_run_timeout", cmd=cmd[:4], timeout=timeout)
-            if proc:
-                try:
-                    proc.kill()
-                    await proc.wait()
-                except Exception:
-                    pass
-            return CommandResult(
-                stdout="",
-                stderr=f"Command timed out after {timeout}s",
-                exit_code=124,  # same as bash timeout exit code
-            )
-        except Exception as exc:
-            logger.exception("host_run_error", cmd=cmd[:4])
-            return CommandResult(stdout="", stderr=str(exc), exit_code=1)
+        return result
 
     # ── Dunder ────────────────────────────────────────────────────────────────
 

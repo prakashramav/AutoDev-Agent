@@ -31,7 +31,8 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: str = ""
 
     # ── LLM ──────────────────────────────────────────────────────
-    ANTHROPIC_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""  # Deprecated fallback
 
     # ── Sandbox ──────────────────────────────────────────────────
     SANDBOX_CPU_QUOTA: int = 50_000          # 50 % of one CPU

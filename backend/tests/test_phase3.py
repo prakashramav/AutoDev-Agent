@@ -88,51 +88,43 @@ def _make_sandbox(file_content: str = SAMPLE_FILE_CONTENT) -> MagicMock:
 # LLM Client tests
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestAnthropicClient:
+class TestGeminiClient:
     """Unit tests for llm/client.py."""
 
     @pytest.mark.asyncio
     async def test_chat_returns_text(self):
-        from llm.client import AnthropicClient, LLMUsage
+        from llm.client import GeminiClient, LLMUsage
 
-        client = AnthropicClient(api_key="fake-key")
+        client = GeminiClient(api_key="fake-key")
 
         mock_msg = MagicMock()
-        mock_msg.model = "claude-sonnet-4-5"
+        mock_msg.model = "gemini-2.5-flash"
         mock_msg.stop_reason = "end_turn"
-        mock_msg.usage.input_tokens  = 50
-        mock_msg.usage.output_tokens = 80
-
-        text_block = MagicMock()
-        text_block.type = "text"
-        text_block.text = "Hello from Claude"
-        mock_msg.content = [text_block]
+        mock_msg.usage_metadata.prompt_token_count = 50
+        mock_msg.usage_metadata.candidates_token_count = 80
+        mock_msg.text = "Hello from Gemini"
 
         with patch.object(client, "_call", new=AsyncMock(return_value=mock_msg)):
             resp = await client.chat(system="sys", user="hello")
 
-        assert resp.text == "Hello from Claude"
+        assert resp.text == "Hello from Gemini"
         assert resp.usage.input_tokens  == 50
         assert resp.usage.output_tokens == 80
         assert resp.tool_input is None
 
     @pytest.mark.asyncio
     async def test_chat_with_tool_extracts_tool_input(self):
-        from llm.client import AnthropicClient
+        from llm.client import GeminiClient
 
-        client = AnthropicClient(api_key="fake-key")
+        client = GeminiClient(api_key="fake-key")
 
         mock_msg = MagicMock()
-        mock_msg.model       = "claude-sonnet-4-5"
-        mock_msg.stop_reason = "tool_use"
-        mock_msg.usage.input_tokens  = 120
-        mock_msg.usage.output_tokens = 300
-
-        tool_block = MagicMock()
-        tool_block.type  = "tool_use"
-        tool_block.name  = "my_tool"
-        tool_block.input = {"key": "value"}
-        mock_msg.content = [tool_block]
+        mock_msg.model = "gemini-2.5-flash"
+        mock_msg.stop_reason = "STOP"
+        mock_msg.usage_metadata.prompt_token_count = 120
+        mock_msg.usage_metadata.candidates_token_count = 300
+        mock_msg.parsed = {"key": "value"}
+        mock_msg.text = '{"key": "value"}'
 
         with patch.object(client, "_call", new=AsyncMock(return_value=mock_msg)):
             resp = await client.chat_with_tool(
@@ -155,10 +147,10 @@ class TestAnthropicClient:
 
     @pytest.mark.asyncio
     async def test_missing_api_key_raises(self):
-        from llm.client import AnthropicClient, LLMError
+        from llm.client import GeminiClient, LLMError
 
-        client = AnthropicClient(api_key="")
-        with pytest.raises(LLMError, match="ANTHROPIC_API_KEY"):
+        client = GeminiClient(api_key="")
+        with pytest.raises(LLMError, match="GEMINI_API_KEY"):
             await client.chat(system="s", user="u")
 
 

@@ -12,13 +12,12 @@ and applies them to the sandbox repository via `SandboxManager.write_file()`.
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 import structlog
 
-from llm.client import AnthropicClient, LLMResponse, get_llm_client
+from llm.client import GeminiClient, LLMResponse, get_llm_client
 
 if TYPE_CHECKING:
     from sandbox.manager import SandboxManager
@@ -131,7 +130,7 @@ class CodeAgent:
     def __init__(
         self,
         sandbox: "SandboxManager",
-        client: AnthropicClient | None = None,
+        client: GeminiClient | None = None,
     ) -> None:
         self._sandbox = sandbox
         self._client = client or get_llm_client()

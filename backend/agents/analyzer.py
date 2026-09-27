@@ -21,7 +21,7 @@ import structlog
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
-from llm.client import AnthropicClient, LLMError, LLMResponse, get_llm_client
+from llm.client import GeminiClient, LLMError, LLMResponse, get_llm_client
 
 if TYPE_CHECKING:
     from sandbox.manager import SandboxManager
@@ -179,7 +179,7 @@ class Analyzer:
     def __init__(
         self,
         sandbox: "SandboxManager",
-        client:  AnthropicClient | None = None,
+        client:  GeminiClient | None = None,
     ) -> None:
         self._sandbox = sandbox
         self._client  = client or get_llm_client()

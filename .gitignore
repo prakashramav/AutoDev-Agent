@@ -1,6 +1,13 @@
-# Environment
+# Environment & Secrets
 .env
+.env.*
+*.env
+*.env.*
 *.env.local
+.env.dev
+.env.example
+backend/.env.dev
+frontend/.env.local
 
 # Python
 __pycache__/
@@ -39,6 +46,9 @@ htmlcov/
 
 # Database / migrations
 alembic/versions/*.py
+*.db
+*.sqlite
+*.sqlite3
 # Keep the versions directory, not the migration files
 
 # Docker

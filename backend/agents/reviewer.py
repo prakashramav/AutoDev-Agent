@@ -18,7 +18,7 @@ from typing import Any
 
 import structlog
 
-from llm.client import AnthropicClient, LLMResponse, get_llm_client
+from llm.client import GeminiClient, LLMResponse, get_llm_client
 
 logger = structlog.get_logger(__name__)
 
@@ -97,7 +97,7 @@ class ReviewAgent:
     Review Agent evaluating code diffs for security, secrets, and correctness.
     """
 
-    def __init__(self, client: AnthropicClient | None = None) -> None:
+    def __init__(self, client: GeminiClient | None = None) -> None:
         self._client = client or get_llm_client()
 
     def run_fast_heuristic_check(self, diff: str) -> list[str]:

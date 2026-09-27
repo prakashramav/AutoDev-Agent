@@ -5,7 +5,7 @@ GET  /tasks — list recent runs.
 """
 from __future__ import annotations
 
-import logging
+import structlog
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -18,7 +18,7 @@ from core.database import get_db
 from models.run import Run, RunStatus
 from worker.task_runner import run_task
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 
@@ -46,6 +46,7 @@ class TaskResponse(BaseModel):
     issue_text: Optional[str]
     created_at: datetime
     updated_at: datetime
+    completed_at: Optional[datetime] = None
     # Progressive outputs
     sandbox_container_id: Optional[str] = None
     file_tree: Optional[str] = None
@@ -70,6 +71,7 @@ def _run_to_response(run: Run) -> TaskResponse:
         issue_text=run.issue_text,
         created_at=run.created_at,
         updated_at=run.updated_at,
+        completed_at=run.completed_at,
         sandbox_container_id=run.sandbox_container_id,
         file_tree=run.file_tree,
         relevant_files=run.relevant_files,

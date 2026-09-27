@@ -29,7 +29,7 @@ Understand Issue → Inspect Repo → Find Relevant Files → Analyze Code
 |-------|-----------|
 | Backend API | FastAPI (Python 3.12) |
 | Agent orchestration | LangGraph |
-| LLM | Claude (Anthropic) |
+| LLM | Google Gemini (`google-genai`) |
 | Sandbox | Docker (ephemeral containers, resource-limited) |
 | GitHub | REST/GraphQL API + git CLI inside sandbox |
 | Test execution | pytest (language-agnostic by design) |
@@ -43,7 +43,7 @@ Understand Issue → Inspect Repo → Find Relevant Files → Analyze Code
 - Docker & Docker Compose
 - Python 3.12+
 - GitHub Personal Access Token
-- Anthropic API Key
+- Google Gemini API Key
 
 ### Quick Start
 
@@ -54,7 +54,7 @@ cd autodev-agent
 
 # 2. Configure environment
 cp .env.example .env
-# Fill in GITHUB_TOKEN, ANTHROPIC_API_KEY, and DB credentials
+# Fill in GITHUB_TOKEN, GEMINI_API_KEY, and DB credentials
 
 # 3. Start all services
 docker-compose up --build

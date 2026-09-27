@@ -76,7 +76,7 @@ class GitHubService:
     """
 
     def __init__(self, token: str | None = None) -> None:
-        self.token = token or settings.GITHUB_TOKEN
+        self.token = token if token is not None else settings.GITHUB_TOKEN
         self.headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": "AutoDev-Agent",

@@ -16,7 +16,7 @@ import structlog
 from dataclasses import dataclass, field
 from typing import Any
 
-from llm.client import AnthropicClient, LLMError, LLMResponse, get_llm_client
+from llm.client import GeminiClient, LLMError, LLMResponse, get_llm_client
 
 logger = structlog.get_logger(__name__)
 
@@ -163,7 +163,7 @@ class Planner:
         print(result.relevant_files)  # ['src/button.js', 'src/index.js']
     """
 
-    def __init__(self, client: AnthropicClient | None = None) -> None:
+    def __init__(self, client: GeminiClient | None = None) -> None:
         self._client = client or get_llm_client()
 
     async def plan(

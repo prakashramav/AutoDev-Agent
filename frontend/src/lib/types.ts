@@ -27,6 +27,7 @@ export interface Run {
   issue_text: string | null;
   created_at: string;
   updated_at: string;
+  completed_at?: string | null;
   sandbox_container_id: string | null;
   file_tree: string | null;
   relevant_files: string[] | null;

@@ -115,6 +115,9 @@ class SandboxManager:
         Pull (if needed) the sandbox image and start the container.
         Returns the full container ID.
         """
+        # Clean up any leftover container with the same name before starting
+        await self._host_run(["docker", "rm", "-f", self._container_name], timeout=15)
+
         flags = self.config.as_docker_run_flags(self._container_name, self.run_id)
         cmd = [
             "docker", "run",

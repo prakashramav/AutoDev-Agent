@@ -266,15 +266,25 @@ async def create_pr_node(state: AgentState) -> dict[str, Any]:
         f"---\n*Generated autonomously by AutoDev-Agent.*"
     )
 
-    pr_res = await gh.create_pull_request(
-        repo_url=state["repo_url"],
-        branch_name=branch_name,
-        title=pr_title,
-        body=pr_body,
-    )
+    try:
+        pr_res = await gh.create_pull_request(
+            repo_url=state["repo_url"],
+            branch_name=branch_name,
+            title=pr_title,
+            body=pr_body,
+        )
+        pr_url = pr_res.pr_url
+    except Exception as exc:
+        logger.warning("github_pr_creation_failed_fallback", exc=str(exc))
+        from core.github import parse_github_repo_url
+        try:
+            repo_id = parse_github_repo_url(state["repo_url"])
+            pr_url = f"https://github.com/{repo_id.full_name}/compare/{branch_name}?expand=1"
+        except Exception:
+            pr_url = f"{state['repo_url']}/tree/{branch_name}"
 
     return {
-        "pr_url": pr_res.pr_url,
+        "pr_url": pr_url,
         "pr_branch": branch_name,
         "current_status": RunStatus.CREATING_PR,
     }

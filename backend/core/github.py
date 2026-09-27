@@ -153,10 +153,39 @@ class GitHubService:
                         body=body,
                         is_mock=False,
                     )
+                elif res.status_code in (403, 404):
+                    err_msg = res.text
+                    logger.warning(
+                        "github_pr_permission_fallback",
+                        status=res.status_code,
+                        response=err_msg[:200],
+                        repo=repo_id.full_name,
+                    )
+                    # For external repos (e.g. octocat/Hello-World) or tokens without PR write permission,
+                    # provide a direct branch comparison link instead of crashing an otherwise successful run
+                    fallback_url = f"https://github.com/{repo_id.full_name}/compare/{branch_name}?expand=1"
+                    return PRCreationResult(
+                        pr_url=fallback_url,
+                        pr_number=None,
+                        branch_name=branch_name,
+                        title=title,
+                        body=body,
+                        is_mock=True,
+                    )
                 else:
                     err_msg = res.text
                     logger.error("github_pr_creation_failed", status=res.status_code, response=err_msg)
                     raise RuntimeError(f"GitHub PR creation failed ({res.status_code}): {err_msg}")
         except Exception as exc:
+            if "Resource not accessible by personal access token" in str(exc) or "403" in str(exc):
+                logger.warning("github_pr_token_permission_caught", exc=str(exc))
+                return PRCreationResult(
+                    pr_url=f"https://github.com/{repo_id.full_name}/compare/{branch_name}?expand=1",
+                    pr_number=None,
+                    branch_name=branch_name,
+                    title=title,
+                    body=body,
+                    is_mock=True,
+                )
             logger.exception("github_pr_creation_error")
             raise

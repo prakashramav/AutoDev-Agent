@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
+import ConfirmModal from "@/components/ConfirmModal";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -31,6 +32,9 @@ export default function RunsPage() {
   const [loading, setLoading] = useState(true);
   const [restartingId, setRestartingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Run | null>(null);
+  const [showCleanupModal, setShowCleanupModal] = useState(false);
+  const [cleaningFailed, setCleaningFailed] = useState(false);
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -56,13 +60,14 @@ export default function RunsPage() {
     }
   };
 
-  const handleDelete = async (runId: string) => {
-    if (deletingId) return;
-    if (!confirm(`Delete run ${runId.slice(0, 8)}?`)) return;
+  const confirmDeleteTarget = async () => {
+    if (!deleteTarget || deletingId) return;
+    const runId = deleteTarget.run_id;
     setDeletingId(runId);
     try {
       await api.deleteRun(runId);
       setRuns((prev) => prev.filter((r) => r.run_id !== runId));
+      setDeleteTarget(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete run");
     } finally {
@@ -70,15 +75,17 @@ export default function RunsPage() {
     }
   };
 
-  const handleCleanupFailed = async () => {
-    const failedCount = runs.filter((r) => r.status === "failed").length;
-    if (failedCount === 0) return;
-    if (!confirm(`Are you sure you want to delete all ${failedCount} failed runs?`)) return;
+  const confirmCleanupFailed = async () => {
+    if (cleaningFailed) return;
+    setCleaningFailed(true);
     try {
       await api.cleanupFailedRuns();
       setRuns((prev) => prev.filter((r) => r.status !== "failed"));
+      setShowCleanupModal(false);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to cleanup failed runs");
+    } finally {
+      setCleaningFailed(false);
     }
   };
 
@@ -100,7 +107,7 @@ export default function RunsPage() {
         <div className="flex items-center gap-3">
           {runs.some((r) => r.status === "failed") && (
             <button
-              onClick={handleCleanupFailed}
+              onClick={() => setShowCleanupModal(true)}
               className="px-3 py-2 rounded-lg text-xs font-semibold text-red-400 bg-red-950/30 hover:bg-red-900/50 border border-red-500/30 transition-colors flex items-center gap-1.5"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -228,7 +235,10 @@ export default function RunsPage() {
                           View →
                         </Link>
                         <button
-                          onClick={() => handleDelete(run.run_id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget(run);
+                          }}
                           disabled={deletingId === run.run_id}
                           title="Delete this run"
                           className="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/30 border border-transparent hover:border-red-500/30 transition-all disabled:opacity-50"
@@ -252,6 +262,32 @@ export default function RunsPage() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Run"
+        message={`Are you sure you want to permanently delete run ${deleteTarget?.run_id.slice(0, 8)}? This cannot be undone.`}
+        confirmText={deletingId ? "Deleting…" : "Delete Run"}
+        confirmVariant="danger"
+        isLoading={!!deletingId}
+        onConfirm={confirmDeleteTarget}
+        onCancel={() => {
+          if (!deletingId) setDeleteTarget(null);
+        }}
+      />
+
+      <ConfirmModal
+        isOpen={showCleanupModal}
+        title="Delete All Failed Runs"
+        message={`Are you sure you want to permanently delete all ${runs.filter((r) => r.status === "failed").length} failed runs?`}
+        confirmText={cleaningFailed ? "Deleting…" : "Delete Failed Runs"}
+        confirmVariant="danger"
+        isLoading={cleaningFailed}
+        onConfirm={confirmCleanupFailed}
+        onCancel={() => {
+          if (!cleaningFailed) setShowCleanupModal(false);
+        }}
+      />
     </div>
   );
 }

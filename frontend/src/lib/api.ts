@@ -41,14 +41,28 @@ export const api = {
     }),
 
   /** Delete a run */
-  deleteRun: (runId: string): Promise<{ status: string }> =>
-    request<{ status: string }>(`/tasks/${runId}`, {
-      method: "DELETE",
-    }),
+  deleteRun: async (runId: string): Promise<{ status: string }> => {
+    try {
+      return await request<{ status: string }>(`/tasks/${runId}`, {
+        method: "DELETE",
+      });
+    } catch {
+      return await request<{ status: string }>(`/tasks/${runId}/delete`, {
+        method: "POST",
+      });
+    }
+  },
 
   /** Delete all failed runs */
-  cleanupFailedRuns: (): Promise<{ deleted_count: number }> =>
-    request<{ deleted_count: number }>("/tasks/failed/cleanup", {
-      method: "DELETE",
-    }),
+  cleanupFailedRuns: async (): Promise<{ deleted_count: number }> => {
+    try {
+      return await request<{ deleted_count: number }>("/tasks/failed/cleanup", {
+        method: "DELETE",
+      });
+    } catch {
+      return await request<{ deleted_count: number }>("/tasks/failed/cleanup", {
+        method: "POST",
+      });
+    }
+  },
 };

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import type { Run, TraceEntry } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
+import ConfirmModal from "@/components/ConfirmModal";
 
 // ── Time helpers ─────────────────────────────────────────────────────────────
 
@@ -83,21 +84,25 @@ export default function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const isActive = run
     ? !["done", "failed"].includes(run.status)
     : false;
 
   const fetchRun = useCallback(async () => {
+    if (deleting) return;
     try {
       const data = await api.getRun(id);
       setRun(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load run");
+      if (!deleting) {
+        setError(err instanceof Error ? err.message : "Failed to load run");
+      }
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, deleting]);
 
   const handleRestart = async () => {
     if (restarting) return;
@@ -113,26 +118,27 @@ export default function RunDetailPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const confirmDelete = async () => {
     if (deleting) return;
-    if (!confirm(`Are you sure you want to delete run ${id.slice(0, 8)}?`)) return;
     setDeleting(true);
     try {
       await api.deleteRun(id);
-      router.push("/runs");
+      window.location.href = "/runs";
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete run");
       setDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
   useEffect(() => {
+    if (deleting) return;
     fetchRun();
     if (isActive) {
       const interval = setInterval(fetchRun, 3000);
       return () => clearInterval(interval);
     }
-  }, [fetchRun, isActive]);
+  }, [fetchRun, isActive, deleting]);
 
   if (loading)
     return (
@@ -191,7 +197,7 @@ export default function RunDetailPage() {
               </button>
             )}
             <button
-              onClick={handleDelete}
+              onClick={() => setShowDeleteModal(true)}
               disabled={deleting}
               className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-red-400 bg-red-950/30 hover:bg-red-900/50 border border-red-500/30 rounded-lg shadow transition-all disabled:opacity-50"
             >
@@ -470,6 +476,19 @@ export default function RunDetailPage() {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        title="Delete Run"
+        message={`Are you sure you want to delete run ${id.slice(0, 8)}? This will permanently remove its execution history, diffs, and sandbox container.`}
+        confirmText={deleting ? "Deleting…" : "Delete Run"}
+        confirmVariant="danger"
+        isLoading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          if (!deleting) setShowDeleteModal(false);
+        }}
+      />
     </div>
   );
 }

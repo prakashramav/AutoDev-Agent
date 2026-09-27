@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { Run } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import SubmitForm from "@/components/SubmitForm";
+import ConfirmModal from "@/components/ConfirmModal";
 
 // ── Stat card ───────────────────────────────────────────────────────────────
 
@@ -115,7 +116,10 @@ function RunRow({
           </Link>
           {onDelete && (
             <button
-              onClick={() => onDelete(run.run_id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(run.run_id);
+              }}
               disabled={isDeleting}
               title="Delete this run"
               className="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/30 border border-transparent hover:border-red-500/30 transition-all disabled:opacity-50"
@@ -145,6 +149,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [restartingId, setRestartingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Run | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -174,13 +179,14 @@ export default function DashboardPage() {
     }
   };
 
-  const handleDelete = async (runId: string) => {
-    if (deletingId) return;
-    if (!confirm(`Delete run ${runId.slice(0, 8)}?`)) return;
+  const confirmDeleteTarget = async () => {
+    if (!deleteTarget || deletingId) return;
+    const runId = deleteTarget.run_id;
     setDeletingId(runId);
     try {
       await api.deleteRun(runId);
       setRuns((prev) => prev.filter((r) => r.run_id !== runId));
+      setDeleteTarget(null);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete run");
     } finally {
@@ -306,7 +312,10 @@ export default function DashboardPage() {
                       key={r.run_id}
                       run={r}
                       onRestart={handleRestart}
-                      onDelete={handleDelete}
+                      onDelete={(runId) => {
+                        const target = runs.find((item) => item.run_id === runId);
+                        if (target) setDeleteTarget(target);
+                      }}
                       isRestarting={restartingId === r.run_id}
                       isDeleting={deletingId === r.run_id}
                     />
@@ -317,6 +326,19 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        title="Delete Run"
+        message={`Are you sure you want to permanently delete run ${deleteTarget?.run_id.slice(0, 8)}? This cannot be undone.`}
+        confirmText={deletingId ? "Deleting…" : "Delete Run"}
+        confirmVariant="danger"
+        isLoading={!!deletingId}
+        onConfirm={confirmDeleteTarget}
+        onCancel={() => {
+          if (!deletingId) setDeleteTarget(null);
+        }}
+      />
     </div>
   );
 }

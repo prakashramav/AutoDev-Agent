@@ -143,6 +143,28 @@ async def list_tasks(
     return [_run_to_response(r) for r in runs]
 
 
+@router.delete("/failed/cleanup", status_code=200)
+@router.post("/failed/cleanup", status_code=200)
+async def cleanup_failed_tasks(
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all runs with failed status from database and cleanup any containers."""
+    result = await db.execute(select(Run).where(Run.status == RunStatus.FAILED))
+    failed_runs = result.scalars().all()
+    count = len(failed_runs)
+    for r in failed_runs:
+        if r.sandbox_container_id:
+            try:
+                import subprocess
+                subprocess.run(["docker", "rm", "-f", r.sandbox_container_id], capture_output=True, timeout=5)
+            except Exception:
+                pass
+        await db.delete(r)
+    await db.commit()
+    logger.info("cleaned_up_failed_tasks", count=count)
+    return {"deleted_count": count}
+
+
 @router.post("/{run_id}/restart", response_model=TaskResponse)
 @router.post("/{run_id}/retry", response_model=TaskResponse)
 async def restart_task(
@@ -185,4 +207,30 @@ async def restart_task(
     background_tasks.add_task(run_task, run.id)
 
     return _run_to_response(run)
+
+
+@router.delete("/{run_id}", status_code=200)
+@router.post("/{run_id}/delete", status_code=200)
+async def delete_task(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a run from the database and remove any leftover container."""
+    result = await db.execute(select(Run).where(Run.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
+
+    if run.sandbox_container_id:
+        try:
+            import subprocess
+            subprocess.run(["docker", "rm", "-f", run.sandbox_container_id], capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+    await db.delete(run)
+    await db.commit()
+    logger.info("task_deleted", run_id=run_id)
+    return {"status": "deleted", "run_id": run_id}
+
 

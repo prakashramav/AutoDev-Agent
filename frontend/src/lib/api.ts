@@ -39,4 +39,16 @@ export const api = {
     request<Run>(`/tasks/${runId}/restart`, {
       method: "POST",
     }),
+
+  /** Delete a run */
+  deleteRun: (runId: string): Promise<{ status: string }> =>
+    request<{ status: string }>(`/tasks/${runId}`, {
+      method: "DELETE",
+    }),
+
+  /** Delete all failed runs */
+  cleanupFailedRuns: (): Promise<{ deleted_count: number }> =>
+    request<{ deleted_count: number }>("/tasks/failed/cleanup", {
+      method: "DELETE",
+    }),
 };

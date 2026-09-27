@@ -58,11 +58,15 @@ function repoName(url: string): string {
 function RunRow({
   run,
   onRestart,
+  onDelete,
   isRestarting,
+  isDeleting,
 }: {
   run: Run;
   onRestart?: (runId: string) => void;
+  onDelete?: (runId: string) => void;
   isRestarting?: boolean;
+  isDeleting?: boolean;
 }) {
   return (
     <tr className="border-b border-[rgba(139,92,246,0.08)] hover:bg-[rgba(139,92,246,0.04)] transition-colors">
@@ -109,6 +113,24 @@ function RunRow({
           >
             View →
           </Link>
+          {onDelete && (
+            <button
+              onClick={() => onDelete(run.run_id)}
+              disabled={isDeleting}
+              title="Delete this run"
+              className="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/30 border border-transparent hover:border-red-500/30 transition-all disabled:opacity-50"
+            >
+              <svg
+                className={`w-3.5 h-3.5 ${isDeleting ? "animate-spin" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -122,6 +144,7 @@ export default function DashboardPage() {
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [restartingId, setRestartingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -148,6 +171,20 @@ export default function DashboardPage() {
       alert(err instanceof Error ? err.message : "Failed to restart run");
     } finally {
       setRestartingId(null);
+    }
+  };
+
+  const handleDelete = async (runId: string) => {
+    if (deletingId) return;
+    if (!confirm(`Delete run ${runId.slice(0, 8)}?`)) return;
+    setDeletingId(runId);
+    try {
+      await api.deleteRun(runId);
+      setRuns((prev) => prev.filter((r) => r.run_id !== runId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete run");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -269,7 +306,9 @@ export default function DashboardPage() {
                       key={r.run_id}
                       run={r}
                       onRestart={handleRestart}
+                      onDelete={handleDelete}
                       isRestarting={restartingId === r.run_id}
+                      isDeleting={deletingId === r.run_id}
                     />
                   ))}
                 </tbody>

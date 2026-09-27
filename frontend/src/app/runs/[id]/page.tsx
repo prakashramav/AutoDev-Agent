@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import type { Run, TraceEntry } from "@/lib/types";
@@ -77,10 +77,12 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [run, setRun] = useState<Run | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const isActive = run
     ? !["done", "failed"].includes(run.status)
@@ -108,6 +110,19 @@ export default function RunDetailPage() {
       alert(err instanceof Error ? err.message : "Failed to restart run");
     } finally {
       setRestarting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (deleting) return;
+    if (!confirm(`Are you sure you want to delete run ${id.slice(0, 8)}?`)) return;
+    setDeleting(true);
+    try {
+      await api.deleteRun(id);
+      router.push("/runs");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete run");
+      setDeleting(false);
     }
   };
 
@@ -175,6 +190,22 @@ export default function RunDetailPage() {
                 {restarting ? "Restarting…" : "Restart Run"}
               </button>
             )}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-red-400 bg-red-950/30 hover:bg-red-900/50 border border-red-500/30 rounded-lg shadow transition-all disabled:opacity-50"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
             {isActive && (
               <span className="text-xs text-yellow-400 animate-pulse">
                 Live — refreshing every 3s

@@ -30,6 +30,7 @@ export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [restartingId, setRestartingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async () => {
     try {
@@ -55,6 +56,32 @@ export default function RunsPage() {
     }
   };
 
+  const handleDelete = async (runId: string) => {
+    if (deletingId) return;
+    if (!confirm(`Delete run ${runId.slice(0, 8)}?`)) return;
+    setDeletingId(runId);
+    try {
+      await api.deleteRun(runId);
+      setRuns((prev) => prev.filter((r) => r.run_id !== runId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete run");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleCleanupFailed = async () => {
+    const failedCount = runs.filter((r) => r.status === "failed").length;
+    if (failedCount === 0) return;
+    if (!confirm(`Are you sure you want to delete all ${failedCount} failed runs?`)) return;
+    try {
+      await api.cleanupFailedRuns();
+      setRuns((prev) => prev.filter((r) => r.status !== "failed"));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to cleanup failed runs");
+    }
+  };
+
   useEffect(() => {
     fetchRuns();
     const interval = setInterval(fetchRuns, 5000);
@@ -70,15 +97,28 @@ export default function RunsPage() {
             {runs.length} total — auto-refreshes every 5s
           </p>
         </div>
-        <Link
-          href="/submit"
-          className="btn-glow px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-2"
-        >
-          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          New Task
-        </Link>
+        <div className="flex items-center gap-3">
+          {runs.some((r) => r.status === "failed") && (
+            <button
+              onClick={handleCleanupFailed}
+              className="px-3 py-2 rounded-lg text-xs font-semibold text-red-400 bg-red-950/30 hover:bg-red-900/50 border border-red-500/30 transition-colors flex items-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete Failed Runs
+            </button>
+          )}
+          <Link
+            href="/submit"
+            className="btn-glow px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-2"
+          >
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New Task
+          </Link>
+        </div>
       </div>
 
       <div className="glass overflow-hidden">
@@ -187,6 +227,22 @@ export default function RunsPage() {
                         >
                           View →
                         </Link>
+                        <button
+                          onClick={() => handleDelete(run.run_id)}
+                          disabled={deletingId === run.run_id}
+                          title="Delete this run"
+                          className="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/30 border border-transparent hover:border-red-500/30 transition-all disabled:opacity-50"
+                        >
+                          <svg
+                            className={`w-3.5 h-3.5 ${deletingId === run.run_id ? "animate-spin" : ""}`}
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
                       </div>
                     </td>
                   </tr>

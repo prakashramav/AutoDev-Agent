@@ -119,7 +119,7 @@ class GeminiClient:
         result_dict = resp.tool_input
     """
 
-    DEFAULT_MODEL = "gemini-2.5-flash"
+    DEFAULT_MODEL = "gemini-2.5-flash-lite"
     DEFAULT_MAX_TOKENS = 8192
 
     def __init__(
@@ -156,8 +156,8 @@ class GeminiClient:
 
     @retry(
         retry=retry_if_exception(_is_retryable_error),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1.5, min=2, max=45),
+        stop=stop_after_attempt(5),
         reraise=True,
     )
     async def _call(
@@ -167,7 +167,7 @@ class GeminiClient:
         user:            str,
         response_schema: dict[str, Any] | None = None,
     ) -> Any:
-        """Raw API call with retry logic."""
+        """Raw API call with retry logic and automatic model fallback on quota exhaustion."""
         client = self._get_client()
 
         config_params: dict[str, Any] = {
@@ -180,35 +180,56 @@ class GeminiClient:
             config_params["response_schema"] = response_schema
 
         config = types.GenerateContentConfig(**config_params)
-        t0 = time.monotonic()
-        try:
-            resp = await client.aio.models.generate_content(
-                model=self.model,
-                contents=user,
-                config=config,
-            )
-            elapsed = time.monotonic() - t0
 
-            prompt_tokens = 0
-            output_tokens = 0
-            if getattr(resp, "usage_metadata", None):
-                prompt_tokens = resp.usage_metadata.prompt_token_count or 0
-                output_tokens = resp.usage_metadata.candidates_token_count or 0
+        candidate_models = list(dict.fromkeys([
+            self.model,
+            "gemini-2.5-flash-lite",
+            "gemini-flash-latest",
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+        ]))
+        last_exc: Exception | None = None
 
-            logger.info(
-                "llm_call_done",
-                model=self.model,
-                input_tokens=prompt_tokens,
-                output_tokens=output_tokens,
-                elapsed_s=round(elapsed, 2),
-            )
-            return resp
-        except errors.APIError as exc:
-            logger.warning("llm_api_error", exc=str(exc))
-            raise
-        except Exception as exc:
-            logger.exception("llm_unexpected_error")
-            raise LLMError("Unexpected LLM error", cause=exc) from exc
+        for model_candidate in candidate_models:
+            t0 = time.monotonic()
+            try:
+                resp = await client.aio.models.generate_content(
+                    model=model_candidate,
+                    contents=user,
+                    config=config,
+                )
+                elapsed = time.monotonic() - t0
+
+                prompt_tokens = 0
+                output_tokens = 0
+                if getattr(resp, "usage_metadata", None):
+                    prompt_tokens = resp.usage_metadata.prompt_token_count or 0
+                    output_tokens = resp.usage_metadata.candidates_token_count or 0
+
+                logger.info(
+                    "llm_call_done",
+                    model=model_candidate,
+                    input_tokens=prompt_tokens,
+                    output_tokens=output_tokens,
+                    elapsed_s=round(elapsed, 2),
+                )
+                self.model = model_candidate
+                return resp
+            except errors.APIError as exc:
+                code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+                msg = str(exc).lower()
+                if code in (429, 503) or "quota" in msg or "resource_exhausted" in msg:
+                    logger.warning("llm_model_quota_fallback", failed_model=model_candidate, exc=str(exc)[:200])
+                    last_exc = exc
+                    continue
+                logger.warning("llm_api_error", exc=str(exc))
+                raise
+            except Exception as exc:
+                logger.exception("llm_unexpected_error")
+                raise LLMError("Unexpected LLM error", cause=exc) from exc
+
+        if last_exc:
+            raise last_exc
 
     # ── Extraction helpers ───────────────────────────────────────────────────
 

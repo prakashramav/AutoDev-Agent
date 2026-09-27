@@ -130,13 +130,17 @@ class SandboxManager:
         )
         result = await self._host_run(cmd, timeout=60)
         if not result.success:
-            stderr = result.stderr or ""
-            if "dockerDesktopLinuxEngine" in stderr or "error during connect" in stderr:
+            err_output = (result.stderr or result.stdout or f"exit code {result.exit_code}").strip()
+            if (
+                "dockerDesktopLinuxEngine" in err_output
+                or "error during connect" in err_output
+                or "cannot find the file specified" in err_output
+            ):
                 raise RuntimeError(
                     "Docker Desktop is not running. Please start Docker Desktop on your machine so the agent can launch the isolated sandbox container."
                 )
             raise RuntimeError(
-                f"Failed to start sandbox container '{self._container_name}': {stderr}"
+                f"Failed to start sandbox container '{self._container_name}': {err_output}"
             )
 
         self.container_id = result.stdout.strip()
